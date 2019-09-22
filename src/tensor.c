@@ -270,15 +270,14 @@ RAI_Tensor* RAI_TensorCreate(const char* dataTypeStr, long long* dims, int ndims
   void *data = NULL;
   switch (tensorAllocMode)
   {
-  case TENSORALLOC_NONE:
-    /* shallow copy no alloc */
-    break;
   case TENSORALLOC_ALLOC:
     data = RedisModule_Alloc(len * dtypeSize);
     break;
   case TENSORALLOC_CALLOC:
     data = RedisModule_Calloc(len, dtypeSize);
     break;
+  case TENSORALLOC_NONE:
+    /* shallow copy no alloc */
   default:
     /* assume TENSORALLOC_NONE
     shallow copy no alloc */
