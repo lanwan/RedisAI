@@ -212,13 +212,21 @@ int RedisAI_TensorSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
 
   const char* fmtstr;
   int datafmt;
+  /* the tensorAllocMode flag dictates wether if we alloc memory for the tensor via:
+  *  TENSORALLOC_ALLOC - which leads to Alloc, in which we dont need the data to be filled with zeros since we're going to override it. ( when we use TENSORSET with the optional argument VALUES )
+  *  TENSORALLOC_CALLOC- which leads to CAlloc, in which we need the data to be filled with zeros since we're not going to override it. ( when we use TENSORSET without the optional arguments VALUES/BLOB )
+  *  TENSORALLOC_NONE- which leads to no allocation and only shallow copying of the RedisModuleString data. ( when we use TENSORSET with the optional argument BLOB )
+  */
+  int tensorAllocMode = TENSORALLOC_CALLOC;
   if (hasdata) {
     AC_GetString(&ac, &fmtstr, NULL, 0);
     if (strcasecmp(fmtstr, "BLOB") == 0) {
       datafmt = REDISAI_DATA_BLOB;
+      tensorAllocMode = TENSORALLOC_NONE;
     }
     else if (strcasecmp(fmtstr, "VALUES") == 0) {
       datafmt = REDISAI_DATA_VALUES;
+      tensorAllocMode = TENSORALLOC_ALLOC;
     }
     else {
       return RedisModule_ReplyWithError(ctx, "ERR unsupported data format");
@@ -227,17 +235,20 @@ int RedisAI_TensorSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
   const size_t nbytes = len * datasize;
   size_t datalen;
   const char *data;
-  RAI_Tensor *t = RAI_TensorCreate(typestr, dims, ndims, hasdata);
+  const RedisModuleString *dataRS;
+  RAI_Tensor *t = RAI_TensorCreate(typestr, dims, ndims, tensorAllocMode);
   if (!t){
     return RedisModule_ReplyWithError(ctx, "ERR could not create tensor");
   }
   switch (datafmt){
   case REDISAI_DATA_BLOB:
-    AC_GetString(&ac, &data, &datalen, 0);
+    AC_GetRString(&ac, &dataRS,0);
+    RedisModule_StringPtrLen(dataRS,&datalen);
     if (datalen != nbytes){
       return RedisModule_ReplyWithError(ctx, "ERR data length does not match tensor shape and type");
-    }
-    RAI_TensorSetData(t, data, datalen);
+    }    
+    RedisModule_RetainString(NULL,dataRS);
+    RAI_TensorSetDataFromRS(t,dataRS);
     break;
   case REDISAI_DATA_VALUES:
     if (argc != len + 4 + ndims){
