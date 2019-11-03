@@ -172,9 +172,11 @@ TF_Tensor* RAI_TFTensorFromTensors(RAI_Tensor** ts, size_t count){
   }
 
   size_t batch_size = 0;
+  size_t batch_byte_size = 0;
 
   for (size_t i=0; i<count; i++) {
     batch_size += ts[i]->tensor.dl_tensor.shape[0];
+    batch_byte_size += RAI_TensorByteSize(ts[i]);
   }
 
   RAI_Tensor* t0 = ts[0];
@@ -192,7 +194,7 @@ TF_Tensor* RAI_TFTensorFromTensors(RAI_Tensor** ts, size_t count){
       RAI_GetTFDataTypeFromDL(t0->tensor.dl_tensor.dtype),
       batched_shape,
       t0->tensor.dl_tensor.ndim,
-      RAI_TensorByteSize(t0));
+      batch_byte_size);
 
   size_t offset = 0;
   for (size_t i=0; i<count; i++) {
@@ -422,9 +424,10 @@ void RAI_ModelFreeTF(RAI_Model* model, RAI_Error* error) {
 
 int RAI_ModelRunTF(RAI_ModelRunCtx* mctx, RAI_Error *error) {
   TF_Status *status = TF_NewStatus();
-  const size_t nbatches = array_len(mctx->batches);
 
+  const size_t nbatches = array_len(mctx->batches);
   if (nbatches == 0) {
+    RAI_SetError(error, RAI_EMODELRUN, "No batches to run\n");
     return 1;
   }
   

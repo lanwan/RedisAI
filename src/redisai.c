@@ -816,11 +816,15 @@ void *RedisAI_RunSession(struct RedisAI_RunInfo **batch_rinfo) {
   for (long long i=0; i<array_len(batch_rinfo); i++) {
     struct RedisAI_RunInfo *rinfo = batch_rinfo[i];
     if (mctx) {
-      printf("BATCH %d\n", i);
-      printf("TENSOR %p\n", i);
       size_t noutputs = RAI_ModelRunCtxNumOutputs(mctx);
       for (long long o=0; o<noutputs; o++) {
-        rinfo->mctx->batches[0].outputs[o].tensor = RAI_TensorGetShallowCopy(mctx->batches[i].outputs[o].tensor);
+        RAI_Tensor* tensor = mctx->batches[i].outputs[o].tensor;
+        if (tensor) {
+          rinfo->mctx->batches[0].outputs[o].tensor = RAI_TensorGetShallowCopy(tensor);
+        }
+        else {
+          rinfo->mctx->batches[0].outputs[o].tensor = NULL;
+        }
       }
     }
     else if (sctx) {
