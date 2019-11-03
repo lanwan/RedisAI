@@ -783,21 +783,40 @@ void RedisAI_FreeRunInfo(RedisModuleCtx *ctx, struct RedisAI_RunInfo *rinfo) {
 }
 
 void *RedisAI_RunSession(struct RedisAI_RunInfo **batch_rinfo) {
+  RAI_Error* err = RedisModule_Calloc(1, sizeof(RAI_Error));
+  mstime_t rtime;
+  int status;
+  RAI_ModelRunCtx *mctx;
+  RAI_ScriptRunCtx *sctx;
   for (long long i=0; i<array_len(batch_rinfo); i++) {
-    struct RedisAI_RunInfo *rinfo = batch_rinfo[i];
-    rinfo->err = RedisModule_Calloc(1, sizeof(RAI_Error));
-    const long long start = ustime();
-    if (rinfo->mctx) {
-      rinfo->status = RAI_ModelRun(rinfo->mctx, rinfo->err);
-    }
-    else if (rinfo->sctx) {
-      rinfo->status = RAI_ScriptRun(rinfo->sctx, rinfo->err);
-    }
-    rinfo->duration_us = ustime() - start;
+    // TODO: build batched mctx;
+    // build batched sctx;
   }
+  // TODO: this is a mock
+  mctx = batch_rinfo[0]->mctx;
+  sctx = batch_rinfo[0]->sctx;
+
+  const mstime_t start = mstime();
+  if (mctx) {
+    status = RAI_ModelRun(mctx, err);
+  }
+  else if (sctx) {
+    status = RAI_ScriptRun(sctx, err);
+  }
+  rtime = mstime() - start;
 
   for (long long i=0; i<array_len(batch_rinfo); i++) {
     struct RedisAI_RunInfo *rinfo = batch_rinfo[i];
+    // TODO: take mctx and sctx, and populate the ones
+    // in batch_rinfo by copying outputs over
+
+    rinfo->status = status;
+    rinfo->err = RedisModule_Calloc(1, sizeof(RAI_Error));
+    // TODO: add information on whether the call was batched
+    // and how large was the batch
+    rinfo->rtime = rtime;
+
+    memcpy(rinfo->err, err, sizeof(RAI_Error));
     if (rinfo->client != NULL) {
       RedisModule_UnblockClient(rinfo->client, rinfo);
     }
