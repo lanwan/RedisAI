@@ -21,6 +21,7 @@
 
 typedef struct queueItem {
   struct queueItem *next;
+  struct queueItem *prev;
   void *value;
 } queueItem;
 
@@ -50,11 +51,13 @@ void queuePush(queue *queue, void *value) {
     return;
   item->value = value;
   item->next = NULL;
+  item->prev = NULL;
 
   if (queue->len == 0) {
     queue->front = queue->back = item;
   } else {
     queue->back->next = item;
+    item->prev = queue->back;
     queue->back = item;
   }
   queue->len++;
@@ -66,10 +69,40 @@ queueItem *queuePop(queue *queue) {
     return NULL;
   }
   queue->front = item->next;
+  if (queue->front != NULL) {
+    queue->front->prev = NULL;
+  }
   if (item == queue->back) {
     queue->back = NULL;
   }
   item->next = NULL;
+  item->prev = NULL;
+  queue->len--;
+  return item;
+}
+
+queueItem *queueFront(queue *queue) {
+  return queue->front;
+}
+
+queueItem *queueNext(queueItem *item) {
+  return item->next;
+}
+
+queueItem *queueEvict(queue *queue, queueItem *item) {
+  if (item == queue->front) {
+    return queuePop(queue);
+  }
+  else if (item == queue->back) {
+    queue->back = item->prev;
+    queue->back->next = NULL;
+  }
+  else {
+    item->prev->next = item->next->prev;
+  }
+
+  item->next = NULL;
+  item->prev = NULL;
   queue->len--;
   return item;
 }
@@ -1020,13 +1053,16 @@ void *RedisAI_Run_ThreadMain(void *arg) {
   while (true){
     int rc = pthread_cond_wait(&run_queue_info->queue_condition_var, &run_queue_info->run_queue_mutex);
     queueItem *item = NULL; 
+    // TODO: here we inspect the queue and pop as many items as batching allows.
+    // We might even not pop the front preferably, we'll have heuristics.
     while ( (item = queuePop(run_queue_info->run_queue)) != NULL){
       pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
+      // TODO: here we pass an array of RedisAI_RunInfo 
+      // which contains the references to the clients etc
       RedisAI_RunSession(item->value);
       RedisModule_Free(item);
       pthread_mutex_lock(&run_queue_info->run_queue_mutex);
     }
-    
   }
 }
 
