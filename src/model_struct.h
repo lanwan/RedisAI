@@ -27,11 +27,19 @@ typedef struct RAI_ModelCtxParam {
   RAI_Tensor* tensor;
 } RAI_ModelCtxParam;
 
+typedef struct RAI_ModelCtxBatch {
+  RAI_ModelCtxParam* inputs;
+  RAI_ModelCtxParam* outputs;
+} RAI_ModelCtxBatch;
+
 typedef struct RAI_ModelRunCtx {
   size_t ctxtype;
   RAI_Model* model;
+  RAI_ModelCtxBatch* batches;
+// TODO: REMOVE THIS
   RAI_ModelCtxParam* inputs;
   RAI_ModelCtxParam* outputs;
+//
 } RAI_ModelRunCtx;
 
 #endif /* SRC_MODEL_STRUCT_H_ */

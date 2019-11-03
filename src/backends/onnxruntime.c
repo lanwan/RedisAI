@@ -359,22 +359,19 @@ int RAI_ModelRunORT(RAI_ModelRunCtx *mctx, RAI_Error *error)
 
   OrtAllocator *allocator;
   status = ort->GetAllocatorWithDefaultOptions(&allocator);
-  if (status != NULL)
-  {
+  if (status != NULL) {
     goto error;
   }
 
   size_t n_input_nodes;
   status = ort->SessionGetInputCount(session, &n_input_nodes);
-  if (status != NULL)
-  {
+  if (status != NULL) {
     goto error;
   }
 
   size_t n_output_nodes;
   status = ort->SessionGetOutputCount(session, &n_output_nodes);
-  if (status != NULL)
-  {
+  if (status != NULL) {
     goto error;
   }
 
@@ -388,37 +385,31 @@ int RAI_ModelRunORT(RAI_ModelRunCtx *mctx, RAI_Error *error)
     size_t ninputs = array_len(mctx->inputs);
     size_t noutputs = array_len(mctx->outputs);
 
-    if (ninputs != n_input_nodes)
-    {
-
+    if (ninputs != n_input_nodes) {
       char msg[70];
       sprintf(msg, "Expected %li inputs but got %li", n_input_nodes, ninputs);
       RAI_SetError(error, RAI_EMODELRUN, msg);
       return 1;
     }
 
-    if (noutputs != n_output_nodes)
-    {
+    if (noutputs != n_output_nodes) {
       char msg[70];
       sprintf(msg, "Expected %li outputs but got %li", n_output_nodes, noutputs);
       RAI_SetError(error, RAI_EMODELRUN, msg);
       return 1;
     }
 
-    for (size_t i = 0; i < n_input_nodes; i++)
-    {
+    for (size_t i = 0; i < n_input_nodes; i++) {
       char *input_name;
       status = ort->SessionGetInputName(session, i, allocator, &input_name);
-      if (status != NULL)
-      {
+      if (status != NULL) {
         goto error;
       }
 
       input_names[i] = input_name;
 
       inputs[i] = RAI_OrtValueFromTensor(mctx->inputs[i].tensor, error);
-      if (error->code != RAI_OK)
-      {
+      if (error->code != RAI_OK) {
         ort->ReleaseStatus(status);
         return 1;
       }
@@ -443,12 +434,10 @@ int RAI_ModelRunORT(RAI_ModelRunCtx *mctx, RAI_Error *error)
 #endif
     }
 
-    for (size_t i = 0; i < n_output_nodes; i++)
-    {
+    for (size_t i = 0; i < n_output_nodes; i++) {
       char *output_name;
       status = ort->SessionGetOutputName(session, i, allocator, &output_name);
-      if (status != NULL)
-      {
+      if (status != NULL) {
         goto error;
       }
 
@@ -464,33 +453,27 @@ int RAI_ModelRunORT(RAI_ModelRunCtx *mctx, RAI_Error *error)
     status = ort->Run(session, run_options, input_names, (const OrtValue *const *)inputs,
                      n_input_nodes, output_names, n_output_nodes, outputs);
 
-    if (status)
-    {
+    if (status) {
       goto error;
     }
 
-    for (size_t i = 0; i < n_output_nodes; i++)
-    {
+    for (size_t i = 0; i < n_output_nodes; i++) {
       RAI_Tensor *output_tensor = RAI_TensorCreateFromOrtValue(outputs[i], error);
-      if (error->code != RAI_OK)
-      {
+      if (error->code != RAI_OK) {
         ort->ReleaseStatus(status);
         return 1;
       }
-      if (output_tensor)
-      {
+      if (output_tensor) {
         mctx->outputs[i].tensor = RAI_TensorGetShallowCopy(output_tensor);
         RAI_TensorFree(output_tensor);
       }
-      else
-      {
+      else {
         printf("ERR: non-tensor output from ONNX models, ignoring (currently unsupported).\n");
       }
       ort->ReleaseValue(outputs[i]);
     }
 
-    for (size_t i = 0; i < n_input_nodes; i++)
-    {
+    for (size_t i = 0; i < n_input_nodes; i++) {
       ort->ReleaseValue(inputs[i]);
     }
 
