@@ -107,6 +107,10 @@ queueItem *queueEvict(queue *queue, queueItem *item) {
   return item;
 }
 
+long long queueLength(queue *queue) {
+  return queue->len;
+}
+
 void queueRelease(queue *queue) {
   unsigned long len;
   queueItem *current;
@@ -778,20 +782,25 @@ void RedisAI_FreeRunInfo(RedisModuleCtx *ctx, struct RedisAI_RunInfo *rinfo) {
   RedisModule_Free(rinfo);
 }
 
-void *RedisAI_RunSession(void *arg) {
-  struct RedisAI_RunInfo *rinfo = (struct RedisAI_RunInfo*)arg;
-  rinfo->err = RedisModule_Calloc(1, sizeof(RAI_Error));
-  const long long start = ustime();
-  if (rinfo->mctx) {
-    rinfo->status = RAI_ModelRun(rinfo->mctx, rinfo->err);
+void *RedisAI_RunSession(struct RedisAI_RunInfo **batch_rinfo) {
+  for (long long i=0; i<array_len(batch_rinfo); i++) {
+    struct RedisAI_RunInfo *rinfo = batch_rinfo[i];
+    rinfo->err = RedisModule_Calloc(1, sizeof(RAI_Error));
+    const long long start = ustime();
+    if (rinfo->mctx) {
+      rinfo->status = RAI_ModelRun(rinfo->mctx, rinfo->err);
+    }
+    else if (rinfo->sctx) {
+      rinfo->status = RAI_ScriptRun(rinfo->sctx, rinfo->err);
+    }
+    rinfo->duration_us = ustime() - start;
   }
-  else if (rinfo->sctx) {
-    rinfo->status = RAI_ScriptRun(rinfo->sctx, rinfo->err);
-  }
-  rinfo->duration_us = ustime()-start;
 
-  if (rinfo->client != NULL) {
-    RedisModule_UnblockClient(rinfo->client, rinfo);
+  for (long long i=0; i<array_len(batch_rinfo); i++) {
+    struct RedisAI_RunInfo *rinfo = batch_rinfo[i];
+    if (rinfo->client != NULL) {
+      RedisModule_UnblockClient(rinfo->client, rinfo);
+    }
   }
   return NULL;
 }
@@ -1055,12 +1064,36 @@ void *RedisAI_Run_ThreadMain(void *arg) {
     queueItem *item = NULL; 
     // TODO: here we inspect the queue and pop as many items as batching allows.
     // We might even not pop the front preferably, we'll have heuristics.
-    while ( (item = queuePop(run_queue_info->run_queue)) != NULL){
+    // Heuristics:
+    // - check if same graph
+    // - check if inputs have same dimensions (except the 0-th)
+    // -> in that case batch, according to maximum batch size
+    // What happens is that we let items go ahead in the queue if they can fit the batch
+    // It they don't, we just run the front (or up to what fits)
+    // Other heuristics: timeout:
+    // - we avoid running the front of the queue if a timeout has not been reached
+    //   In theory, if a (timeout - predicted execution time) has not been reached
+    //   When the timeout is reached, we need to trigger.
+    // We'll implement timeout at a later stage.
+
+    long long run_queue_len = queueLength(run_queue_info->run_queue);
+
+    while ((item = queuePop(run_queue_info->run_queue)) != NULL) {
+      queueItem **evicted_items = array_new(queueItem *, run_queue_len);
+      struct RedisAI_RunInfo **batch_rinfo = array_new(struct RedisAI_RunInfo *, run_queue_len);
+
+      array_append(evicted_items, item);
+      array_append(batch_rinfo, (struct RedisAI_RunInfo *)item->value);
+
       pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
-      // TODO: here we pass an array of RedisAI_RunInfo 
-      // which contains the references to the clients etc
-      RedisAI_RunSession(item->value);
-      RedisModule_Free(item);
+      RedisAI_RunSession(batch_rinfo);
+
+      for (long long i=0; i<array_len(evicted_items); i++) {
+        RedisModule_Free(evicted_items[i]);
+      }
+      array_free(evicted_items);
+      array_free(batch_rinfo);
+
       pthread_mutex_lock(&run_queue_info->run_queue_mutex);
     }
   }
@@ -1090,9 +1123,6 @@ int RedisAI_ScriptRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
   RedisModuleString* keystr;
   AC_GetRString(&ac, &keystr, 0);
 
-  // TODO we run synchronously for now, but we could have
-  // - A: a separate thread and queue for scripts
-  // - B: the same thread and queue for models and scripts
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keystr, REDISMODULE_READ);
   int type = RedisModule_KeyType(key);
   if (type == REDISMODULE_KEYTYPE_EMPTY) {
