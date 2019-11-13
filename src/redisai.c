@@ -234,7 +234,7 @@ int RedisAI_TensorSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
   const char* typestr;
   AC_GetString(&ac, &typestr, NULL, 0); 
 
-  size_t datasize = RAI_TensorGetDataSize(typestr);
+  size_t datasize = RAI_TensorDataSizeFromString(typestr);
   if (!datasize){
     return RedisModule_ReplyWithError(ctx, "ERR invalid data type");
   }
@@ -1557,7 +1557,7 @@ static int RedisAI_RegisterApi(RedisModuleCtx* ctx) {
   REGISTER_API(GetLLAPIVersion, ctx);
 
   REGISTER_API(TensorCreate, ctx);
-  REGISTER_API(TensorGetDataSize, ctx);
+  REGISTER_API(TensorDataSize, ctx);
   REGISTER_API(TensorFree, ctx);
   REGISTER_API(TensorSetData, ctx);
   REGISTER_API(TensorSetValueFromLongLong, ctx);

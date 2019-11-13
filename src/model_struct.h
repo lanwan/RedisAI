@@ -36,10 +36,6 @@ typedef struct RAI_ModelRunCtx {
   size_t ctxtype;
   RAI_Model* model;
   RAI_ModelCtxBatch* batches;
-// TODO: REMOVE THIS
-  RAI_ModelCtxParam* inputs;
-  RAI_ModelCtxParam* outputs;
-//
 } RAI_ModelRunCtx;
 
 #endif /* SRC_MODEL_STRUCT_H_ */
