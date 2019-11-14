@@ -352,7 +352,7 @@ RAI_Tensor* RAI_TensorCreateBySlicingTensor(RAI_Tensor* t, long long offset, lon
   long long dims[ndims];
 
   long long dtype_size = RAI_TensorDataSize(t);
-  long long sample_size = 0;
+  long long sample_size = 1;
 
   for (long long i=1; i<ndims; i++) {
     dims[i] = RAI_TensorDim(t, i);
