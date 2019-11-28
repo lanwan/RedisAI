@@ -788,7 +788,7 @@ void *RedisAI_RunSession(struct RedisAI_RunInfo **batch_rinfo) {
   }
 
   RAI_Error* err = RedisModule_Calloc(1, sizeof(RAI_Error));
-  mstime_t rtime;
+  long long rtime;
   int status;
   RAI_ModelRunCtx* mctx = NULL;
   RAI_ScriptRunCtx* sctx = NULL;
@@ -804,14 +804,14 @@ void *RedisAI_RunSession(struct RedisAI_RunInfo **batch_rinfo) {
     sctx = batch_rinfo[0]->sctx;
   }
 
-  const mstime_t start = mstime();
+  const long long start = ustime();
   if (mctx) {
     status = RAI_ModelRun(mctx, err);
   }
   else if (sctx) {
     status = RAI_ScriptRun(sctx, err);
   }
-  rtime = mstime() - start;
+  rtime = ustime() - start;
 
   for (long long i=0; i<array_len(batch_rinfo); i++) {
     struct RedisAI_RunInfo *rinfo = batch_rinfo[i];
@@ -835,7 +835,7 @@ void *RedisAI_RunSession(struct RedisAI_RunInfo **batch_rinfo) {
     rinfo->err = RedisModule_Calloc(1, sizeof(RAI_Error));
     // TODO: add information on whether the call was batched
     // and how large the batch was
-    rinfo->rtime = rtime;
+    rinfo->duration_us = rtime;
 
     memcpy(rinfo->err, err, sizeof(RAI_Error));
     if (rinfo->client != NULL) {

@@ -105,7 +105,7 @@ int RAI_ModelRunTorch(RAI_ModelRunCtx* mctx, RAI_Error *error) {
   }
 
   for (size_t i=0 ; i<noutputs; ++i) {
-    outputs_dl[i] = mctx->outputs[i].tensor ? &mctx->outputs[i].tensor->tensor : NULL;
+    outputs_dl[i] = NULL;
   }
 
   char* error_descr = NULL;
