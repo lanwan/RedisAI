@@ -888,13 +888,16 @@ int RedisAI_Run_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REDISMODULE_NOT_USED(argc);
   struct RedisAI_RunInfo *rinfo = RedisModule_GetBlockedClientPrivateData(ctx);
   
+  printf("A\n");
   if (rinfo->status) {
     RedisModule_Log(ctx, "warning", "ERR %s", rinfo->err->detail);
+    printf("A1\n");
     int ret = RedisModule_ReplyWithError(ctx, rinfo->err->detail_oneline);
     RedisAI_FreeRunInfo(ctx, rinfo);
     return ret;
   }
 
+  printf("B\n");
   size_t num_outputs = 0;
   if (rinfo->mctx) {
     (rinfo->mctx->model->backend_calls)++;
