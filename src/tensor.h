@@ -20,6 +20,7 @@ size_t RAI_TensorDataSizeFromDLDataType(DLDataType dtype);
 size_t RAI_TensorDataSizeFromString(const char* dataType);
 DLDataType RAI_TensorDataType(RAI_Tensor* t);
 DLDataType RAI_TensorDataTypeFromString(const char* dataType);
+void Tensor_DataTypeStr(DLDataType dtype, char **dtypestr);
 void RAI_TensorFree(RAI_Tensor* t);
 int RAI_TensorSetData(RAI_Tensor* t, const char* data, size_t len);
 int RAI_TensorSetValueFromLongLong(RAI_Tensor* t, long long i, long long val);
