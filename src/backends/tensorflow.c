@@ -226,7 +226,7 @@ TF_Tensor* RAI_TFTensorFromTensors(RAI_Tensor** ts, size_t count){
 }
 
 
-RAI_Model *RAI_ModelCreateTF(RAI_Backend backend, const char* devicestr,
+RAI_Model *RAI_ModelCreateTF(RAI_Backend backend, const char* devicestr, RAI_ModelOpts opts,
                              size_t ninputs, const char **inputs,
                              size_t noutputs, const char **outputs,
                              const char *modeldef, size_t modellen,
@@ -377,6 +377,7 @@ RAI_Model *RAI_ModelCreateTF(RAI_Backend backend, const char* devicestr,
   ret->devicestr = RedisModule_Strdup(devicestr);
   ret->inputs = inputs_;
   ret->outputs = outputs_;
+  ret->opts = opts;
   ret->refCount = 1;
   
 

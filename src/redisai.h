@@ -49,7 +49,7 @@ long long MODULE_API_FUNC(RedisAI_TensorDim)(RAI_Tensor* t, int dim);
 size_t MODULE_API_FUNC(RedisAI_TensorByteSize)(RAI_Tensor* t);
 char* MODULE_API_FUNC(RedisAI_TensorData)(RAI_Tensor* t);
 
-RAI_Model* MODULE_API_FUNC(RedisAI_ModelCreate)(int backend, char* devicestr,
+RAI_Model* MODULE_API_FUNC(RedisAI_ModelCreate)(int backend, char* devicestr, RAI_ModelOpts opts,
                                                 size_t ninputs, const char **inputs,
                                                 size_t noutputs, const char **outputs,
                                                 const char *modeldef, size_t modellen, RAI_Error* err);

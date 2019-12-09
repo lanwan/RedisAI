@@ -16,6 +16,10 @@ static void* RAI_Model_RdbLoad(struct RedisModuleIO *io, int encver) {
 
   RAI_Backend backend = RedisModule_LoadUnsigned(io);
   const char *devicestr = RedisModule_LoadStringBuffer(io, NULL);
+
+  size_t batchsize = RedisModule_LoadUnsigned(io);
+  size_t minbatchsize = RedisModule_LoadUnsigned(io);
+
   size_t ninputs = RedisModule_LoadUnsigned(io);
   const char **inputs = RedisModule_Alloc(ninputs * sizeof(char*));
 
@@ -31,13 +35,18 @@ static void* RAI_Model_RdbLoad(struct RedisModuleIO *io, int encver) {
     outputs[i] = RedisModule_LoadStringBuffer(io, NULL);
   }
 
+  RAI_ModelOpts opts = {
+    .batchsize = batchsize,
+    .minbatchsize = minbatchsize
+  };
+
   size_t len;
 
   char *buffer = RedisModule_LoadStringBuffer(io, &len);
 
   RAI_Error err = {0};
 
-  RAI_Model *model = RAI_ModelCreate(backend, devicestr, ninputs, inputs, noutputs, outputs,
+  RAI_Model *model = RAI_ModelCreate(backend, devicestr, opts, ninputs, inputs, noutputs, outputs,
                                      buffer, len, &err);
 
   if (err.code == RAI_EBACKENDNOTLOADED) {
@@ -49,7 +58,7 @@ static void* RAI_Model_RdbLoad(struct RedisModuleIO *io, int encver) {
       return NULL;
     }
     RAI_ClearError(&err);
-    model = RAI_ModelCreate(backend, devicestr, ninputs, inputs, noutputs, outputs, buffer, len, &err);
+    model = RAI_ModelCreate(backend, devicestr, opts, ninputs, inputs, noutputs, outputs, buffer, len, &err);
   }
  
   if (err.code != RAI_OK) {
@@ -87,6 +96,8 @@ static void RAI_Model_RdbSave(RedisModuleIO *io, void *value) {
 
   RedisModule_SaveUnsigned(io, model->backend);
   RedisModule_SaveStringBuffer(io, model->devicestr, strlen(model->devicestr) + 1);
+  RedisModule_SaveUnsigned(io, model->opts.batchsize);
+  RedisModule_SaveUnsigned(io, model->opts.minbatchsize);
   RedisModule_SaveUnsigned(io, model->ninputs);
   for (size_t i=0; i<model->ninputs; i++) {
     RedisModule_SaveStringBuffer(io, model->inputs[i], strlen(model->inputs[i]) + 1);
@@ -151,9 +162,11 @@ static void RAI_Model_AofRewrite(RedisModuleIO *aof, RedisModuleString *key, voi
       break;
   }
 
-  RedisModule_EmitAOF(aof, "AI.MODELSET", "slccvcvb",
+  RedisModule_EmitAOF(aof, "AI.MODELSET", "slcclclcvcvb",
                       key,
                       backend, model->devicestr,
+                      "BATCHSIZE", model->opts.batchsize,
+                      "MINBATCHSIZE", model->opts.minbatchsize,
                       "INPUTS", inputs_, model->ninputs,
                       "OUTPUTS", outputs_, model->noutputs,
                       buffer, len);
@@ -196,7 +209,7 @@ int RAI_ModelInit(RedisModuleCtx* ctx) {
   return RedisAI_ModelType != NULL;
 }
 
-RAI_Model *RAI_ModelCreate(RAI_Backend backend, const char* devicestr,
+RAI_Model *RAI_ModelCreate(RAI_Backend backend, const char* devicestr, RAI_ModelOpts opts,
                            size_t ninputs, const char **inputs,
                            size_t noutputs, const char **outputs,
                            const char *modeldef, size_t modellen, RAI_Error* err) {
@@ -206,28 +219,28 @@ RAI_Model *RAI_ModelCreate(RAI_Backend backend, const char* devicestr,
       RAI_SetError(err, RAI_EBACKENDNOTLOADED, "Backend not loaded: TF.\n");
       return NULL;
     }
-    model = RAI_backends.tf.model_create_with_nodes(backend, devicestr, ninputs, inputs, noutputs, outputs, modeldef, modellen, err);
+    model = RAI_backends.tf.model_create_with_nodes(backend, devicestr, opts, ninputs, inputs, noutputs, outputs, modeldef, modellen, err);
   }
   else if (backend == RAI_BACKEND_TFLITE) {
     if (!RAI_backends.tflite.model_create) {
       RAI_SetError(err, RAI_EBACKENDNOTLOADED, "Backend not loaded: TFLITE.\n");
       return NULL;
     }
-    model = RAI_backends.tflite.model_create(backend, devicestr, modeldef, modellen, err);
+    model = RAI_backends.tflite.model_create(backend, devicestr, opts, modeldef, modellen, err);
   }
   else if (backend == RAI_BACKEND_TORCH) {
     if (!RAI_backends.torch.model_create) {
       RAI_SetError(err, RAI_EBACKENDNOTLOADED, "Backend not loaded: TORCH.\n");
       return NULL;
     }
-    model = RAI_backends.torch.model_create(backend, devicestr, modeldef, modellen, err);
+    model = RAI_backends.torch.model_create(backend, devicestr, opts, modeldef, modellen, err);
   }
   else if (backend == RAI_BACKEND_ONNXRUNTIME) {
     if (!RAI_backends.onnx.model_create) {
       RAI_SetError(err, RAI_EBACKENDNOTLOADED, "Backend not loaded: ONNX.\n");
       return NULL;
     }
-    model = RAI_backends.onnx.model_create(backend, devicestr, modeldef, modellen, err);
+    model = RAI_backends.onnx.model_create(backend, devicestr, opts, modeldef, modellen, err);
   }
   else {
     RAI_SetError(err, RAI_EUNSUPPORTEDBACKEND, "Unsupported backend.\n");

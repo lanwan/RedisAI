@@ -14,7 +14,7 @@ int RAI_InitBackendTorch(int (*get_api_fn)(const char *, void *)) {
   return REDISMODULE_OK;
 }
 
-RAI_Model *RAI_ModelCreateTorch(RAI_Backend backend, const char* devicestr,
+RAI_Model *RAI_ModelCreateTorch(RAI_Backend backend, const char* devicestr, RAI_ModelOpts opts,
                                 const char *modeldef, size_t modellen,
                                 RAI_Error *error) {
   DLDeviceType dl_device;
@@ -54,6 +54,7 @@ RAI_Model *RAI_ModelCreateTorch(RAI_Backend backend, const char* devicestr,
   ret->devicestr = RedisModule_Strdup(devicestr);
   ret->inputs = NULL;
   ret->outputs = NULL;
+  ret->opts = opts;
   ret->refCount = 1;
 
   return ret;

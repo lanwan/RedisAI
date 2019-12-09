@@ -503,7 +503,7 @@ int RedisAI_TensorGet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
 
 // ================================
 
-// key backend device [INPUTS name1 name2] [OUTPUTS name1 name2] modelbuf
+// key backend device [BATCHSIZE n] [MINBATCHSIZE m] [INPUTS name1 name2] [OUTPUTS name1 name2] modelbuf
 int RedisAI_ModelSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
@@ -536,6 +536,20 @@ int RedisAI_ModelSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   const char* devicestr;
   AC_GetString(&ac, &devicestr, NULL, 0); 
+
+  unsigned long long batchsize = 0;
+  if (AC_AdvanceIfMatch(&ac, "BATCHSIZE")) {
+    if (!AC_GetUnsignedLongLong(&ac, &batchsize, 0)) {
+      return RedisModule_ReplyWithError(ctx, "Invalid argument for BATCHSIZE.");
+    }
+  }
+
+  unsigned long long minbatchsize = 0;
+  if (AC_AdvanceIfMatch(&ac, "MINBATCHSIZE")) {
+    if (!AC_GetUnsignedLongLong(&ac, &minbatchsize, 0)) {
+      return RedisModule_ReplyWithError(ctx, "Invalid argument for MINBATCHSIZE");
+    }
+  }
 
   ArgsCursor optionsac;
   AC_GetSliceToOffset(&ac, &optionsac, argc-2);
@@ -575,6 +589,11 @@ int RedisAI_ModelSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     AC_GetString(&outac, outputs+i, NULL, 0); 
   }
 
+  RAI_ModelOpts opts = {
+    .batchsize = batchsize,
+    .minbatchsize = minbatchsize
+  };
+
   RAI_Model *model = NULL;
 
   size_t modellen;
@@ -583,7 +602,7 @@ int RedisAI_ModelSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   RAI_Error err = {0};
 
-  model = RAI_ModelCreate(backend, devicestr, ninputs, inputs, noutputs, outputs, modeldef, modellen, &err);
+  model = RAI_ModelCreate(backend, devicestr, opts, ninputs, inputs, noutputs, outputs, modeldef, modellen, &err);
 
   if (err.code == RAI_EBACKENDNOTLOADED) {
     RedisModule_Log(ctx, "warning", "Backend %s not loaded, will try loading default backend\n", bckstr);
@@ -595,7 +614,7 @@ int RedisAI_ModelSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
       return ret;
     }
     RAI_ClearError(&err);
-    model = RAI_ModelCreate(backend, devicestr, ninputs, inputs, noutputs, outputs, modeldef, modellen, &err);
+    model = RAI_ModelCreate(backend, devicestr, opts, ninputs, inputs, noutputs, outputs, modeldef, modellen, &err);
   }
 
   if (err.code != RAI_OK) {
@@ -609,7 +628,7 @@ int RedisAI_ModelSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // TODO: if backend loaded, make sure there's a queue
 
-  if (ensureRunQueue(devicestr)==REDISMODULE_ERR) {
+  if (ensureRunQueue(devicestr) == REDISMODULE_ERR) {
     RAI_ModelFree(model, &err);
     if (err.code != RAI_OK) {
       #ifdef RAI_PRINT_BACKEND_ERRORS

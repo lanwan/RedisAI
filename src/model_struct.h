@@ -4,6 +4,11 @@
 #include "config.h"
 #include "tensor_struct.h"
 
+typedef struct RAI_ModelOpts {
+  size_t batchsize;
+  size_t minbatchsize;
+} RAI_ModelOpts;
+
 typedef struct RAI_Model {
   void* model;
   // TODO: use session pool? The ideal would be to use one session per client.
@@ -12,6 +17,7 @@ typedef struct RAI_Model {
   void *session;
   RAI_Backend backend;
   char* devicestr;
+  RAI_ModelOpts opts;
   char **inputs;
   size_t ninputs;
   char **outputs;

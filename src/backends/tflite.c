@@ -19,7 +19,7 @@ typedef struct RAI_TfLiteBuffer {
   size_t len;
 } RAI_TfLiteBuffer;
 
-RAI_Model *RAI_ModelCreateTFLite(RAI_Backend backend, const char* devicestr,
+RAI_Model *RAI_ModelCreateTFLite(RAI_Backend backend, const char* devicestr, RAI_ModelOpts opts,
                                  const char *modeldef, size_t modellen,
                                  RAI_Error *error) {
   DLDeviceType dl_device;
@@ -67,6 +67,7 @@ RAI_Model *RAI_ModelCreateTFLite(RAI_Backend backend, const char* devicestr,
   ret->inputs = NULL;
   ret->outputs = NULL;
   ret->refCount = 1;
+  ret->opts = opts;
   ret->data = tflitebuffer;
 
   return ret;
