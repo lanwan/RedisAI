@@ -1150,6 +1150,83 @@ void *RedisAI_Run_ThreadMain(void *arg) {
 
     long long run_queue_len = queueLength(run_queue_info->run_queue);
 
+    while (run_queue_len > 0) {
+      queueItem **evicted_items = array_new(queueItem *, run_queue_len);
+      struct RedisAI_RunInfo **batch_rinfo = array_new(struct RedisAI_RunInfo *, run_queue_len);
+
+      queueItem *item = queueFront(run_queue_info->run_queue);
+      struct RedisAI_RunInfo *rinfo = (struct RedisAI_RunInfo *)item->value;
+      array_append(evicted_items, item);
+      array_append(batch_rinfo, rinfo);
+
+      if (rinfo->mctx) {
+        size_t batchsize = rinfo->mctx->model->opts.batchsize;
+        size_t minbatchsize = rinfo->mctx->model->opts.minbatchsize;
+
+        // TODO: guard against [0] not being there
+        // Here we assume all inputs have the same batch dimension
+        size_t current_batchsize = RAI_TensorDim(rinfo->mctx->batches[0].inputs[0].tensor, 0);
+
+        if (batchsize > 0 && current_batchsize < batchsize) {
+          // TODO: look for other elements in the queue to add to batch
+          queueItem *next_item = item;
+          while (next_item != NULL) {
+            struct RedisAI_RunInfo *next_rinfo = (struct RedisAI_RunInfo *)next_item->value;
+
+            if (next_rinfo->mctx == NULL ||
+                next_rinfo->mctx->model != rinfo->mctx->model) {
+
+              // TODO check that dimensions other than batch dimension match
+              
+              continue;
+            }
+
+            // TODO: guard against [0] not being there
+            // Here we assume all inputs have the same batch dimension
+            current_batchsize += RAI_TensorDim(next_rinfo->mctx->batches[0].inputs[0].tensor, 0);
+
+            array_append(evicted_items, next_item);
+            array_append(batch_rinfo, next_rinfo);
+
+            next_item = queueNext(next_item);
+          }
+        }
+
+        if (minbatchsize > 0 && current_batchsize < minbatchsize) {
+          // TODO: hold off or flip front and next in queue (potential
+          // issue is that we'll keep flipping if the second fails too)
+        }
+      }
+
+      for (long long i=0; i<array_len(evicted_items); i++) {
+        queueEvict(run_queue_info->run_queue, evicted_items[i]);
+      }
+ 
+      pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
+
+      // TODO: skip condition (minbatchsize)
+      // We should consider next in line if any. If not, just wait for more.
+      if (false) {
+        array_free(evicted_items);
+        array_free(batch_rinfo);
+      }
+
+      RedisAI_RunSession(batch_rinfo);
+
+      for (long long i=0; i<array_len(evicted_items); i++) {
+        RedisModule_Free(evicted_items[i]);
+      }
+      array_free(evicted_items);
+      array_free(batch_rinfo);
+
+      pthread_mutex_lock(&run_queue_info->run_queue_mutex);
+
+      run_queue_len = queueLength(run_queue_info->run_queue);
+    }
+
+    /*
+    long long run_queue_len = queueLength(run_queue_info->run_queue);
+
     while ((item = queuePop(run_queue_info->run_queue)) != NULL) {
       queueItem **evicted_items = array_new(queueItem *, run_queue_len);
       struct RedisAI_RunInfo **batch_rinfo = array_new(struct RedisAI_RunInfo *, run_queue_len);
@@ -1168,6 +1245,7 @@ void *RedisAI_Run_ThreadMain(void *arg) {
 
       pthread_mutex_lock(&run_queue_info->run_queue_mutex);
     }
+    */
   }
 }
 
