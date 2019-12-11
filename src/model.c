@@ -326,6 +326,14 @@ int RAI_ModelRunCtxAddOutput(RAI_ModelRunCtx* mctx, size_t id, const char* outpu
   return Model_RunCtxAddParam(mctx, &mctx->batches[id].outputs, outputName, NULL);
 }
 
+size_t RAI_ModelRunCtxNumInputs(RAI_ModelRunCtx* mctx) {
+  if (RAI_ModelRunCtxNumBatches(mctx) == 0) {
+    return 0;
+  }
+  // Here we assume batch is well-formed (i.e. number of outputs is equal in all batches)
+  return array_len(mctx->batches[0].inputs);
+}
+
 size_t RAI_ModelRunCtxNumOutputs(RAI_ModelRunCtx* mctx) {
   if (RAI_ModelRunCtxNumBatches(mctx) == 0) {
     return 0;
@@ -361,6 +369,12 @@ void RAI_ModelRunCtxCopyBatch(RAI_ModelRunCtx* dest, size_t id_dest, RAI_ModelRu
     RAI_ModelCtxParam param = src->batches[id_src].outputs[i];
     RAI_ModelRunCtxAddOutput(dest, id_dest, param.name);
   }
+}
+
+RAI_Tensor* RAI_ModelRunCtxInputTensor(RAI_ModelRunCtx* mctx, size_t id, size_t index) {
+  // TODO: add method to collect from batches?
+  assert(RAI_ModelRunCtxNumInputs(mctx) > index && index >= 0);
+  return mctx->batches[id].inputs[index].tensor;
 }
 
 RAI_Tensor* RAI_ModelRunCtxOutputTensor(RAI_ModelRunCtx* mctx, size_t id, size_t index) {

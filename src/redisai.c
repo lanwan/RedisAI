@@ -907,16 +907,13 @@ int RedisAI_Run_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REDISMODULE_NOT_USED(argc);
   struct RedisAI_RunInfo *rinfo = RedisModule_GetBlockedClientPrivateData(ctx);
   
-  printf("A\n");
   if (rinfo->status) {
     RedisModule_Log(ctx, "warning", "ERR %s", rinfo->err->detail);
-    printf("A1\n");
     int ret = RedisModule_ReplyWithError(ctx, rinfo->err->detail_oneline);
     RedisAI_FreeRunInfo(ctx, rinfo);
     return ret;
   }
 
-  printf("B\n");
   size_t num_outputs = 0;
   if (rinfo->mctx) {
     (rinfo->mctx->model->backend_calls)++;
@@ -1162,39 +1159,41 @@ void *RedisAI_Run_ThreadMain(void *arg) {
       if (rinfo->mctx) {
         size_t batchsize = rinfo->mctx->model->opts.batchsize;
         size_t minbatchsize = rinfo->mctx->model->opts.minbatchsize;
+        size_t current_batchsize = 0;
 
-        // TODO: guard against [0] not being there
-        // Here we assume all inputs have the same batch dimension
-        size_t current_batchsize = RAI_TensorDim(rinfo->mctx->batches[0].inputs[0].tensor, 0);
+        if (RAI_ModelRunCtxNumInputs(rinfo->mctx) > 0) {
+          // Here we assume all inputs have the same batch dimension
+          RAI_Tensor* first_input = RAI_ModelRunCtxInputTensor(rinfo->mctx, 0, 0);
+          current_batchsize = RAI_TensorDim(first_input, 0);
 
-        if (batchsize > 0 && current_batchsize < batchsize) {
-          // TODO: look for other elements in the queue to add to batch
-          queueItem *next_item = item;
-          while (next_item != NULL) {
-            struct RedisAI_RunInfo *next_rinfo = (struct RedisAI_RunInfo *)next_item->value;
+          if (batchsize > 0 && current_batchsize < batchsize) {
+            queueItem *next_item = item;
+            while (next_item != NULL) {
+              struct RedisAI_RunInfo *next_rinfo = (struct RedisAI_RunInfo *)next_item->value;
 
-            if (next_rinfo->mctx == NULL ||
-                next_rinfo->mctx->model != rinfo->mctx->model) {
+              if (next_rinfo->mctx == NULL ||
+                  next_rinfo->mctx->model != rinfo->mctx->model) {
+                // TODO check that dimensions other than batch dimension match
 
-              // TODO check that dimensions other than batch dimension match
-              
-              continue;
+                continue;
+              }
+
+              // Here we assume all inputs have the same batch dimension
+              RAI_Tensor* next_first_input = RAI_ModelRunCtxInputTensor(rinfo->mctx, 0, 0);
+              current_batchsize += RAI_TensorDim(next_first_input, 0);
+
+              array_append(evicted_items, next_item);
+              array_append(batch_rinfo, next_rinfo);
+
+              next_item = queueNext(next_item);
             }
-
-            // TODO: guard against [0] not being there
-            // Here we assume all inputs have the same batch dimension
-            current_batchsize += RAI_TensorDim(next_rinfo->mctx->batches[0].inputs[0].tensor, 0);
-
-            array_append(evicted_items, next_item);
-            array_append(batch_rinfo, next_rinfo);
-
-            next_item = queueNext(next_item);
           }
         }
 
-        if (minbatchsize > 0 && current_batchsize < minbatchsize) {
-          // TODO: hold off or flip front and next in queue (potential
-          // issue is that we'll keep flipping if the second fails too)
+        if (minbatchsize > 0 && current_batchsize > 0 && current_batchsize < minbatchsize) {
+          // TODO: serve next, if no next sleep
+          pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
+          continue;
         }
       }
 
