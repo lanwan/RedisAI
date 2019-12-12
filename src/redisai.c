@@ -1161,7 +1161,8 @@ void *RedisAI_Run_ThreadMain(void *arg) {
         size_t minbatchsize = rinfo->mctx->model->opts.minbatchsize;
         size_t current_batchsize = 0;
 
-        if (RAI_ModelRunCtxNumInputs(rinfo->mctx) > 0) {
+        size_t ninputs = RAI_ModelRunCtxNumInputs(rinfo->mctx);
+        if (ninputs > 0) {
           // Here we assume all inputs have the same batch dimension
           RAI_Tensor* first_input = RAI_ModelRunCtxInputTensor(rinfo->mctx, 0, 0);
           current_batchsize = RAI_TensorDim(first_input, 0);
@@ -1192,6 +1193,9 @@ void *RedisAI_Run_ThreadMain(void *arg) {
 
         if (minbatchsize > 0 && current_batchsize > 0 && current_batchsize < minbatchsize) {
           // TODO: serve next, if no next sleep
+          // if next != NULL, redo with next in line
+          // which means, set next in line in evicted_items and batch_rinfo
+          // repeat the batching logic
           pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
           continue;
         }
