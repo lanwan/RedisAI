@@ -1123,6 +1123,79 @@ int RedisAI_ModelRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   return REDISMODULE_OK;
 }
 
+size_t RAI_RunInfoBatchSize(struct RedisAI_RunInfo* rinfo) {
+  if (rinfo->mctx == NULL) {
+    return -1;
+  }
+
+  size_t ninputs = RAI_ModelRunCtxNumInputs(rinfo->mctx);
+
+  int batchsize = 0;
+
+  if (ninputs == 0) {
+    return batchsize;
+  }
+
+  for (size_t i=0; i<ninputs; i++) {
+    RAI_Tensor* input = RAI_ModelRunCtxInputTensor(rinfo->mctx, 0, i);
+
+    if (i == 0) {
+      batchsize = RAI_TensorDim(input, 0);
+      continue;
+    }
+
+    if (batchsize != RAI_TensorDim(input, 0)) {
+      batchsize = 0;
+      break;
+    }
+  }
+
+  return batchsize;
+}
+
+int RAI_RunInfoBatchable(struct RedisAI_RunInfo* rinfo1, struct RedisAI_RunInfo* rinfo2) {
+  if (rinfo1->mctx == NULL || rinfo2->mctx == NULL) {
+    return 0;
+  }
+
+  if (rinfo1->mctx->model != rinfo2->mctx->model) {
+    return 0;
+  }
+
+  int ninputs1 = RAI_ModelRunCtxNumInputs(rinfo1->mctx);
+  int ninputs2 = RAI_ModelRunCtxNumInputs(rinfo2->mctx);
+
+  if (ninputs1 != ninputs2) {
+    return 0;
+  }
+
+  for (int i=0; i<ninputs1; i++) {
+    RAI_Tensor* input1 = RAI_ModelRunCtxInputTensor(rinfo1->mctx, 0, i);
+    RAI_Tensor* input2 = RAI_ModelRunCtxInputTensor(rinfo2->mctx, 0, i);
+
+    int ndims1 = RAI_TensorNumDims(input1);
+    int ndims2 = RAI_TensorNumDims(input2);
+
+    if (ndims1 != ndims2) {
+      return 0;
+    }
+
+    if (ndims1 == 0) {
+      continue;
+    }
+
+    for (int j=1; j<ndims1; j++) {
+      int dim1 = RAI_TensorDim(input1, j);
+      int dim2 = RAI_TensorDim(input2, j);
+      if (dim1 != dim2) {
+        return 0;
+      }
+    }
+  }
+
+  return 1;
+}
+
 void *RedisAI_Run_ThreadMain(void *arg) {
 
   RunQueueInfo* run_queue_info = (RunQueueInfo*)arg;
@@ -1130,89 +1203,89 @@ void *RedisAI_Run_ThreadMain(void *arg) {
   pthread_mutex_lock(&run_queue_info->run_queue_mutex);
   while (true){
     int rc = pthread_cond_wait(&run_queue_info->queue_condition_var, &run_queue_info->run_queue_mutex);
-    queueItem *item = NULL; 
-    // TODO: here we inspect the queue and pop as many items as batching allows.
-    // We might even not pop the front preferably, we'll have heuristics.
-    // Heuristics:
-    // - check if same graph
-    // - check if inputs have same dimensions (except the 0-th)
-    // -> in that case batch, according to maximum batch size
-    // What happens is that we let items go ahead in the queue if they can fit the batch
-    // It they don't, we just run the front (or up to what fits)
-    // Other heuristics: timeout:
-    // - we avoid running the front of the queue if a timeout has not been reached
-    //   In theory, if a (timeout - predicted execution time) has not been reached
-    //   When the timeout is reached, we need to trigger.
-    // We'll implement timeout at a later stage.
 
     long long run_queue_len = queueLength(run_queue_info->run_queue);
 
     while (run_queue_len > 0) {
-      queueItem **evicted_items = array_new(queueItem *, run_queue_len);
-      struct RedisAI_RunInfo **batch_rinfo = array_new(struct RedisAI_RunInfo *, run_queue_len);
+      queueItem **evicted_items = NULL;
+      struct RedisAI_RunInfo **batch_rinfo = NULL;
 
       queueItem *item = queueFront(run_queue_info->run_queue);
-      struct RedisAI_RunInfo *rinfo = (struct RedisAI_RunInfo *)item->value;
-      array_append(evicted_items, item);
-      array_append(batch_rinfo, rinfo);
 
-      if (rinfo->mctx) {
+      while (item) {
+        struct RedisAI_RunInfo *rinfo = (struct RedisAI_RunInfo *)item->value;
+
+        if (evicted_items) {
+          array_free(evicted_items);
+          array_free(batch_rinfo);
+        }
+        evicted_items = array_new(queueItem *, run_queue_len);
+        batch_rinfo = array_new(struct RedisAI_RunInfo *, run_queue_len);
+
+        array_append(evicted_items, item);
+        array_append(batch_rinfo, rinfo);
+
+        if (rinfo->sctx) {
+          break;
+        }
+
         size_t batchsize = rinfo->mctx->model->opts.batchsize;
-        size_t minbatchsize = rinfo->mctx->model->opts.minbatchsize;
-        size_t current_batchsize = 0;
 
-        size_t ninputs = RAI_ModelRunCtxNumInputs(rinfo->mctx);
-        if (ninputs > 0) {
-          // Here we assume all inputs have the same batch dimension
-          RAI_Tensor* first_input = RAI_ModelRunCtxInputTensor(rinfo->mctx, 0, 0);
-          current_batchsize = RAI_TensorDim(first_input, 0);
+        if (batchsize == 0) {
+          break;
+        }
 
-          if (batchsize > 0 && current_batchsize < batchsize) {
-            queueItem *next_item = item;
-            while (next_item != NULL) {
-              struct RedisAI_RunInfo *next_rinfo = (struct RedisAI_RunInfo *)next_item->value;
+        size_t current_batchsize = RAI_RunInfoBatchSize(rinfo);
 
-              if (next_rinfo->mctx == NULL ||
-                  next_rinfo->mctx->model != rinfo->mctx->model) {
-                // TODO check that dimensions other than batch dimension match
+        if (current_batchsize == 0 ||
+            current_batchsize >= batchsize) {
+          break;
+        }
 
-                continue;
-              }
+        queueItem *next_item = item->next;
 
-              // Here we assume all inputs have the same batch dimension
-              RAI_Tensor* next_first_input = RAI_ModelRunCtxInputTensor(rinfo->mctx, 0, 0);
-              current_batchsize += RAI_TensorDim(next_first_input, 0);
+        while (next_item != NULL) {
+          struct RedisAI_RunInfo *next_rinfo = (struct RedisAI_RunInfo *)next_item->value;
 
-              array_append(evicted_items, next_item);
-              array_append(batch_rinfo, next_rinfo);
-
-              next_item = queueNext(next_item);
-            }
+          if (RAI_RunInfoBatchable(rinfo, next_rinfo) == 0) {
+            next_item = queueNext(next_item);
+            continue;
           }
+
+          int next_batchsize = RAI_RunInfoBatchSize(next_rinfo);
+
+          if (current_batchsize + next_batchsize > batchsize) {
+            break;
+          }
+
+          array_append(evicted_items, next_item);
+          array_append(batch_rinfo, next_rinfo);
+
+          current_batchsize += next_batchsize;
+          next_item = queueNext(next_item);
         }
 
-        if (minbatchsize > 0 && current_batchsize > 0 && current_batchsize < minbatchsize) {
-          // TODO: serve next, if no next sleep
-          // if next != NULL, redo with next in line
-          // which means, set next in line in evicted_items and batch_rinfo
-          // repeat the batching logic
-          pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
-          continue;
+        size_t minbatchsize = rinfo->mctx->model->opts.minbatchsize;
+
+        if (minbatchsize == 0 || current_batchsize > minbatchsize) {
+          break;
         }
+
+        item = item->next;
+      }
+
+      if (item == NULL) {
+        array_free(evicted_items);
+        array_free(batch_rinfo);
+        pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
+        break;
       }
 
       for (long long i=0; i<array_len(evicted_items); i++) {
         queueEvict(run_queue_info->run_queue, evicted_items[i]);
       }
- 
-      pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
 
-      // TODO: skip condition (minbatchsize)
-      // We should consider next in line if any. If not, just wait for more.
-      if (false) {
-        array_free(evicted_items);
-        array_free(batch_rinfo);
-      }
+      pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
 
       RedisAI_RunSession(batch_rinfo);
 
@@ -1226,29 +1299,6 @@ void *RedisAI_Run_ThreadMain(void *arg) {
 
       run_queue_len = queueLength(run_queue_info->run_queue);
     }
-
-    /*
-    long long run_queue_len = queueLength(run_queue_info->run_queue);
-
-    while ((item = queuePop(run_queue_info->run_queue)) != NULL) {
-      queueItem **evicted_items = array_new(queueItem *, run_queue_len);
-      struct RedisAI_RunInfo **batch_rinfo = array_new(struct RedisAI_RunInfo *, run_queue_len);
-
-      array_append(evicted_items, item);
-      array_append(batch_rinfo, (struct RedisAI_RunInfo *)item->value);
-
-      pthread_mutex_unlock(&run_queue_info->run_queue_mutex);
-      RedisAI_RunSession(batch_rinfo);
-
-      for (long long i=0; i<array_len(evicted_items); i++) {
-        RedisModule_Free(evicted_items[i]);
-      }
-      array_free(evicted_items);
-      array_free(batch_rinfo);
-
-      pthread_mutex_lock(&run_queue_info->run_queue_mutex);
-    }
-    */
   }
 }
 
