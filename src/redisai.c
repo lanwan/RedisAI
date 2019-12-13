@@ -539,14 +539,14 @@ int RedisAI_ModelSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   unsigned long long batchsize = 0;
   if (AC_AdvanceIfMatch(&ac, "BATCHSIZE")) {
-    if (!AC_GetUnsignedLongLong(&ac, &batchsize, 0)) {
+    if (AC_GetUnsignedLongLong(&ac, &batchsize, 0) != AC_OK) {
       return RedisModule_ReplyWithError(ctx, "Invalid argument for BATCHSIZE.");
     }
   }
 
   unsigned long long minbatchsize = 0;
   if (AC_AdvanceIfMatch(&ac, "MINBATCHSIZE")) {
-    if (!AC_GetUnsignedLongLong(&ac, &minbatchsize, 0)) {
+    if (AC_GetUnsignedLongLong(&ac, &minbatchsize, 0) != AC_OK) {
       return RedisModule_ReplyWithError(ctx, "Invalid argument for MINBATCHSIZE");
     }
   }
@@ -1267,7 +1267,7 @@ void *RedisAI_Run_ThreadMain(void *arg) {
 
         size_t minbatchsize = rinfo->mctx->model->opts.minbatchsize;
 
-        if (minbatchsize == 0 || current_batchsize > minbatchsize) {
+        if (minbatchsize == 0 || current_batchsize >= minbatchsize) {
           break;
         }
 
