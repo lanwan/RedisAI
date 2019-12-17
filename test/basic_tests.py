@@ -768,18 +768,17 @@ def test_run_tflite_model_autobatch(env):
 
     def run():
         con = env.getConnection()
-        con.execute_command('AI.MODELRUN', 'm', 'INPUTS', 'c', 'OUTPUTS', 'd')
+        con.execute_command('AI.MODELRUN', 'm', 'INPUTS', 'c', 'OUTPUTS', 'd', 'd2')
 
     t = threading.Thread(target=run)
     t.start()
 
-    con.execute_command('AI.MODELRUN', 'm', 'INPUTS', 'a', 'OUTPUTS', 'b')
+    con.execute_command('AI.MODELRUN', 'm', 'INPUTS', 'a', 'OUTPUTS', 'b', 'b2')
 
     tensor = con.execute_command('AI.TENSORGET', 'b', 'VALUES')
-    values = tensor[-1]
-    argmax = max(range(len(values)), key=lambda i: values[i])
+    value = tensor[-1][0]
 
-    env.assertEqual(argmax, 1)
+    env.assertEqual(value, 1)
 
 
 def test_set_tensor_multiproc(env):
