@@ -190,39 +190,34 @@ TF_Tensor* RAI_TFTensorFromTensors(RAI_Tensor** ts, size_t count){
 
   batched_shape[0] = batch_size;
 
-  TF_Tensor* out = TF_AllocateTensor(
-      RAI_GetTFDataTypeFromDL(t0->tensor.dl_tensor.dtype),
-      batched_shape,
-      t0->tensor.dl_tensor.ndim,
-      batch_byte_size);
+  TF_Tensor* out = NULL;
 
-  size_t offset = 0;
-  for (size_t i=0; i<count; i++) {
-    size_t tbytesize = RAI_TensorByteSize(ts[i]);
-    memcpy(TF_TensorData(out) + offset, ts[i]->tensor.dl_tensor.data, tbytesize);
-    offset += tbytesize;
+  if (count > 1) {
+    out = TF_AllocateTensor(
+        RAI_GetTFDataTypeFromDL(t0->tensor.dl_tensor.dtype),
+        batched_shape,
+        t0->tensor.dl_tensor.ndim,
+        batch_byte_size);
+
+    size_t offset = 0;
+    for (size_t i=0; i<count; i++) {
+      size_t tbytesize = RAI_TensorByteSize(ts[i]);
+      memcpy(TF_TensorData(out) + offset, ts[i]->tensor.dl_tensor.data, tbytesize);
+      offset += tbytesize;
+    }
+  }
+  else {
+   out = TF_NewTensor(
+       RAI_GetTFDataTypeFromDL(t0->tensor.dl_tensor.dtype),
+       t0->tensor.dl_tensor.shape,
+       t0->tensor.dl_tensor.ndim,
+       t0->tensor.dl_tensor.data,
+       RAI_TensorByteSize(t0),
+       &RAI_TFDeallocator,
+       NULL);
   }
 
   return out;
-
-// #ifdef RAI_COPY_RUN_INPUT
-//   TF_Tensor* out = TF_AllocateTensor(
-//       RAI_GetTFDataTypeFromDL(t->tensor.dl_tensor.dtype),
-//       t->tensor.dl_tensor.shape,
-//       t->tensor.dl_tensor.ndim,
-//       RAI_TensorByteSize(t));
-//   memcpy(TF_TensorData(out), t->tensor.dl_tensor.data, TF_TensorByteSize(out));
-//   return out;
-// #else
-//   return TF_NewTensor(
-//       RAI_GetTFDataTypeFromDL(t->tensor.dl_tensor.dtype),
-//       t->tensor.dl_tensor.shape,
-//       t->tensor.dl_tensor.ndim,
-//       t->tensor.dl_tensor.data,
-//       RAI_TensorByteSize(t),
-//       &RAI_TFDeallocator,
-//       NULL);
-// #endif /* RAI_COPY_RUN_INPUT */
 }
 
 

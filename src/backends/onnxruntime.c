@@ -115,6 +115,10 @@ OrtValue* RAI_OrtValueFromTensors(RAI_Tensor** ts, size_t count, RAI_Error *erro
   OrtStatus* status = NULL;
   const OrtApi* ort = OrtGetApiBase()->GetApi(1);
 
+  if (count == 0) {
+    return NULL;
+  }
+
   OrtAllocator *allocator;
   status = ort->GetAllocatorWithDefaultOptions(&allocator);
   if (status != NULL) {
@@ -145,28 +149,41 @@ OrtValue* RAI_OrtValueFromTensors(RAI_Tensor** ts, size_t count, RAI_Error *erro
   batched_shape[0] = batch_size;
 
   OrtValue* out;
-  status = ort->CreateTensorAsOrtValue(
-    allocator,
-    batched_shape,
-    t0->tensor.dl_tensor.ndim,
-    RAI_GetOrtDataTypeFromDL(t0->tensor.dl_tensor.dtype),
-    &out);
-  if (status != NULL) {
-    goto error;
-  }
+
+  if (count > 1) {
+    status = ort->CreateTensorAsOrtValue(
+      allocator,
+      batched_shape,
+      t0->tensor.dl_tensor.ndim,
+      RAI_GetOrtDataTypeFromDL(t0->tensor.dl_tensor.dtype),
+      &out);
+    if (status != NULL) {
+      goto error;
+    }
  
-  char *ort_data;
-  status = ort->GetTensorMutableData(out, (void **)&ort_data);
-  if (status != NULL) {
-    goto error;
-  }
+    char *ort_data;
+    status = ort->GetTensorMutableData(out, (void **)&ort_data);
+    if (status != NULL) {
+      goto error;
+    }
 
-  for (size_t i=0; i<count; i++) {
-    memcpy(ort_data, RAI_TensorData(ts[i]), RAI_TensorByteSize(ts[i]));
+    for (size_t i=0; i<count; i++) {
+      memcpy(ort_data, RAI_TensorData(ts[i]), RAI_TensorByteSize(ts[i]));
+    }
   }
+  else {
+   status = ort->CreateTensorWithDataAsOrtValue(
+     allocator->Info(allocator),
+     t0->tensor.dl_tensor.data,
+     RAI_TensorByteSize(t0),
+     t0->tensor.dl_tensor.shape,
+     t0->tensor.dl_tensor.ndim,
+     RAI_GetOrtDataTypeFromDL(t0->tensor.dl_tensor.dtype),
+     &out);
 
-  if (status != NULL) {
-    goto error;
+    if (status != NULL) {
+      goto error;
+    }
   }
 
   return out;
