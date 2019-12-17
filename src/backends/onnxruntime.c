@@ -78,7 +78,6 @@ DLDataType RAI_GetDLDataTypeFromORT(ONNXTensorElementDataType dtype) {
 }
 
 // OrtValue* RAI_OrtValueFromTensor(RAI_Tensor* t, RAI_Error *error) {
-//   // TODO: create outside and pass?
 //   const OrtApi* ort = OrtGetApiBase()->GetApi(1);
 //   OrtMemoryInfo* memory_info;
 //   OrtStatus* status;
@@ -310,10 +309,6 @@ OrtEnv* env = NULL;
 RAI_Model *RAI_ModelCreateORT(RAI_Backend backend, const char* devicestr, RAI_ModelOpts opts,
                               const char *modeldef, size_t modellen,
                               RAI_Error *error) {
-
-  // TODO: take from
-  // https://github.com/microsoft/onnxruntime/blob/master/csharp/test/Microsoft.ML.OnnxRuntime.EndToEndTests.Capi/C_Api_Sample.cpp
-
   const OrtApi* ort = OrtGetApiBase()->GetApi(1);
 
   RAI_Device device;
@@ -339,7 +334,7 @@ RAI_Model *RAI_ModelCreateORT(RAI_Backend backend, const char* devicestr, RAI_Mo
     goto error;
   }
 
-  // TODO: probably these options could be configured at the AI.CONFIG level
+  // TODO: these options could be configured at the AI.CONFIG level
   OrtSessionOptions* session_options;
   status = ort->CreateSessionOptions(&session_options);
   if (status != NULL) {
@@ -365,7 +360,7 @@ RAI_Model *RAI_ModelCreateORT(RAI_Backend backend, const char* devicestr, RAI_Mo
     ort->SessionOptionsAppendExecutionProvider_CUDA(session_options, deviceid);
   }
 #else
-  // TODO: Do dynamic device/provider check with GetExecutionProviderType or something else
+  // TODO: Do dynamic device/provider check with GetExecutionProviderType or something on these lines
   if (device == RAI_DEVICE_GPU) {
     RAI_SetError(error, RAI_EMODELCREATE, "GPU requested but ONNX couldn't find CUDA");
     return NULL;
@@ -508,8 +503,6 @@ int RAI_ModelRunORT(RAI_ModelRunCtx *mctx, RAI_Error *error)
         batched_input_tensors[b] = mctx->batches[b].inputs[i].tensor;
       }
 
-      // TODO: batches
-      // inputs[i] = RAI_OrtValueFromTensor(mctx->inputs[i].tensor, error);
       inputs[i] = RAI_OrtValueFromTensors(batched_input_tensors, nbatches, error);
       if (error->code != RAI_OK) {
         ort->ReleaseStatus(status);
@@ -560,11 +553,9 @@ int RAI_ModelRunORT(RAI_ModelRunCtx *mctx, RAI_Error *error)
     }
 
     for (size_t i = 0; i < n_output_nodes; i++) {
-      // TODO batched
       for (size_t b=0; b<nbatches; b++) {
         RAI_Tensor* output_tensor = RAI_TensorCreateFromOrtValue(outputs[i], batch_offsets[b], batch_sizes[b], error);
         if (error->code != RAI_OK) {
-          // TODO: check everything is deallocated here
           ort->ReleaseStatus(status);
           return 1;
         }
