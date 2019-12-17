@@ -856,7 +856,11 @@ void *RedisAI_RunSession(struct RedisAI_RunInfo **batch_rinfo) {
     // and how large the batch was
     rinfo->duration_us = rtime;
 
-    memcpy(rinfo->err, err, sizeof(RAI_Error));
+    rinfo->err->code = err->code;
+    if (err->code != RAI_OK) {
+      rinfo->err->detail = RedisModule_Strdup(err->detail);
+      rinfo->err->detail_oneline = RedisModule_Strdup(err->detail_oneline);
+    }
     if (rinfo->client != NULL) {
       RedisModule_UnblockClient(rinfo->client, rinfo);
     }
@@ -908,7 +912,7 @@ int RedisAI_Run_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   struct RedisAI_RunInfo *rinfo = RedisModule_GetBlockedClientPrivateData(ctx);
   
   if (rinfo->status) {
-    RedisModule_Log(ctx, "warning", "ERR %s", rinfo->err->detail);
+    RedisModule_Log(ctx, "warning", "ERR %s", rinfo->err->detail_oneline);
     int ret = RedisModule_ReplyWithError(ctx, rinfo->err->detail_oneline);
     RedisAI_FreeRunInfo(ctx, rinfo);
     return ret;

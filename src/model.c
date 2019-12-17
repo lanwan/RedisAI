@@ -403,7 +403,6 @@ void RAI_ModelRunCtxFree(RAI_ModelRunCtx* mctx) {
 
   if (err.code != RAI_OK) {
     // TODO: take it to client somehow
-    printf("ERR: %s\n", err.detail);
     RAI_ClearError(&err);
   }
 
