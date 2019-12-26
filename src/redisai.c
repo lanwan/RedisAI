@@ -98,6 +98,8 @@ typedef struct RunQueueInfo {
 static AI_dict *run_queues = NULL;
 static long long perqueueThreadPoolSize = REDISAI_DEFAULT_THREADS_PER_QUEUE;
 
+static AI_dict *run_stats = NULL;
+
 int freeRunQueueInfo(RunQueueInfo* info) {
   int result = REDISMODULE_OK;
   if (info->run_queue) {
@@ -150,17 +152,17 @@ int ensureRunQueue(const char* devicestr) {
 }
 
 long long ustime(void) {
-    struct timeval tv;
-    long long ust;
+  struct timeval tv;
+  long long ust;
 
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
-    return ust;
+  gettimeofday(&tv, NULL);
+  ust = ((long long)tv.tv_sec)*1000000;
+  ust += tv.tv_usec;
+  return ust;
 }
 
 mstime_t mstime(void) {
-    return ustime()/1000;
+  return ustime()/1000;
 }
 
 enum RedisAI_DataFmt {
@@ -713,12 +715,24 @@ int RedisAI_ModelDel_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
 struct RedisAI_RunInfo {
   RedisModuleBlockedClient *client;
+  RedisModuleString *runkey;
   RedisModuleString **outkeys;
   RAI_ModelRunCtx *mctx;
   RAI_ScriptRunCtx *sctx;
   int status;
   long long duration_us;
   RAI_Error* err;
+};
+
+struct RedisAI_RunStats {
+  RedisModuleString *key;
+  int type; // model or script
+  RAI_Backend backend;
+  char* devicestr;
+  long long duration_us;
+  long long samples;
+  long long calls;
+  unsigned long timestamp;
 };
 
 void RedisAI_FreeRunInfo(RedisModuleCtx *ctx, struct RedisAI_RunInfo *rinfo) {
@@ -743,6 +757,11 @@ void RedisAI_FreeRunInfo(RedisModuleCtx *ctx, struct RedisAI_RunInfo *rinfo) {
   }
 
   RedisModule_Free(rinfo);
+}
+
+void RedisAI_FreeRunStats(RedisModuleCtx *ctx, struct RedisAI_RunStats *rstats) {
+  RedisModule_FreeString(ctx, rstats->key);
+  RedisModule_Free(rstats->devicestr);
 }
 
 void *RedisAI_RunSession(void *arg) {
@@ -804,6 +823,45 @@ int RedisAI_Run_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisAI_FreeRunInfo(ctx, rinfo);
     return ret;
   }
+
+  const char* runkey = RedisModule_StringPtrLen(rinfo->runkey, NULL);
+  AI_dictEntry *stats_entry = AI_dictFind(run_stats, runkey);
+
+  struct RedisAI_RunStats *rstats = NULL;
+  if (stats_entry == NULL) {
+    struct RedisAI_RunStats *rstats = RedisModule_Calloc(1, sizeof(struct RedisAI_RunStats));
+    RedisModule_RetainString(ctx, rinfo->runkey);
+    rstats->key = rinfo->runkey;
+    rstats->type = rinfo->mctx ? 0 : 1;
+    if (rinfo->mctx) {
+      rstats->backend = rinfo->mctx->model->backend;
+      rstats->devicestr = RedisModule_Strdup(rinfo->mctx->model->devicestr);
+    }
+    else {
+      rstats->devicestr = RedisModule_Strdup(rinfo->sctx->script->devicestr);
+    }
+
+    AI_dictAdd(run_stats, (void*)runkey, (void*)rstats);
+  }
+  else {
+    rstats = AI_dictGetVal(stats_entry);
+  }
+
+  unsigned long current_mstime = mstime();
+  unsigned long TIMEOUT = 1000; // 1s
+
+  if (current_mstime - rstats->timestamp > TIMEOUT) {
+    rstats->duration_us = 0;
+    rstats->samples = 0;
+    rstats->calls = 0;
+  }
+  rstats->duration_us += rinfo->duration_us;
+  if (rinfo->mctx) {
+    // TODO: samples (only if model)
+    // rstats->samples += ;
+  }
+  rstats->calls += 1;
+  rstats->timestamp = current_mstime;
 
   size_t num_outputs = 0;
   if (rinfo->mctx) {
@@ -936,6 +994,8 @@ int RedisAI_ModelRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   }
 
   struct RedisAI_RunInfo *rinfo = RedisModule_Calloc(1, sizeof(struct RedisAI_RunInfo));
+  RedisModule_RetainString(ctx, keystr);
+  rinfo->runkey = keystr;
   rinfo->mctx = RAI_ModelRunCtxCreate(mto);
   rinfo->sctx = NULL;
   rinfo->outkeys = NULL;
@@ -1332,6 +1392,55 @@ int RedisAI_ScriptSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
   return REDISMODULE_OK;
 }
 
+int RedisAI_Info_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  RedisModule_AutoMemory(ctx);
+
+  if (argc > 1) return RedisModule_WrongArity(ctx);
+
+  long long rstats_size = AI_dictSize(run_stats);
+  RedisModule_ReplyWithArray(ctx, rstats_size);
+
+  AI_dictIterator* iter = AI_dictGetIterator(run_stats);
+  AI_dictEntry* stats_entry = AI_dictNext(iter);
+
+  while (stats_entry) {
+    struct RedisAI_RunStats *rstats = AI_dictGetVal(stats_entry);
+
+    RedisModule_ReplyWithArray(ctx, 14);
+
+    RedisModule_ReplyWithSimpleString(ctx, "KEY");
+    RedisModule_ReplyWithString(ctx, rstats->key);
+    RedisModule_ReplyWithSimpleString(ctx, "TYPE");
+    if (rstats->type == 0) {
+      RedisModule_ReplyWithSimpleString(ctx, "MODEL");
+    }
+    else {
+      RedisModule_ReplyWithSimpleString(ctx, "SCRIPT");
+    }
+    RedisModule_ReplyWithSimpleString(ctx, "BACKEND");
+    RedisModule_ReplyWithSimpleString(ctx, RAI_BackendName(rstats->backend));
+    RedisModule_ReplyWithSimpleString(ctx, "DEVICE");
+    RedisModule_ReplyWithSimpleString(ctx, rstats->devicestr);
+    RedisModule_ReplyWithSimpleString(ctx, "DURATION");
+    RedisModule_ReplyWithLongLong(ctx, rstats->duration_us);
+    RedisModule_ReplyWithSimpleString(ctx, "SAMPLES");
+    if (rstats->type == 0) {
+      RedisModule_ReplyWithLongLong(ctx, rstats->samples);
+    }
+    else {
+      RedisModule_ReplyWithLongLong(ctx, -1);
+    }
+    RedisModule_ReplyWithSimpleString(ctx, "CALLS");
+    RedisModule_ReplyWithLongLong(ctx, rstats->calls);
+
+    stats_entry = AI_dictNext(iter);
+  }
+
+  AI_dictReleaseIterator(iter);
+
+  return REDISMODULE_OK;
+}
+
 int RedisAI_Config_LoadBackend(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_AutoMemory(ctx);
 
@@ -1549,6 +1658,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
       == REDISMODULE_ERR)
     return REDISMODULE_ERR;
 
+  if (RedisModule_CreateCommand(ctx, "ai.info", RedisAI_Info_RedisCommand, "readonly", 1, 1, 1)
+      == REDISMODULE_ERR)
+    return REDISMODULE_ERR;
+
   if (RedisModule_CreateCommand(ctx, "ai.config", RedisAI_Config_RedisCommand, "write", 1, 1, 1)
       == REDISMODULE_ERR)
     return REDISMODULE_ERR;
@@ -1616,6 +1729,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_Log(ctx, "warning", "Queue not initialized for device CPU" );
     return REDISMODULE_ERR;
   }
+
+  run_stats = AI_dictCreate(&AI_dictTypeHeapStrings, NULL);
   
   return REDISMODULE_OK;
 }
