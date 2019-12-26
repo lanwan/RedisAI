@@ -829,7 +829,7 @@ int RedisAI_Run_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   struct RedisAI_RunStats *rstats = NULL;
   if (stats_entry == NULL) {
-    struct RedisAI_RunStats *rstats = RedisModule_Calloc(1, sizeof(struct RedisAI_RunStats));
+    rstats = RedisModule_Calloc(1, sizeof(struct RedisAI_RunStats));
     RedisModule_RetainString(ctx, rinfo->runkey);
     rstats->key = rinfo->runkey;
     rstats->type = rinfo->mctx ? 0 : 1;
@@ -855,11 +855,14 @@ int RedisAI_Run_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     rstats->samples = 0;
     rstats->calls = 0;
   }
+
   rstats->duration_us += rinfo->duration_us;
+
   if (rinfo->mctx) {
     // TODO: samples (only if model)
     // rstats->samples += ;
   }
+
   rstats->calls += 1;
   rstats->timestamp = current_mstime;
 
@@ -874,6 +877,7 @@ int RedisAI_Run_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     (rinfo->sctx->script->backend_us) += rinfo->duration_us;
     num_outputs = RAI_ScriptRunCtxNumOutputs(rinfo->sctx);
   }
+
   for (size_t i=0; i<num_outputs; ++i) {
     RedisModuleKey *outkey = RedisModule_OpenKey(ctx, rinfo->outkeys[i],
                                                  REDISMODULE_READ|REDISMODULE_WRITE);
@@ -1197,6 +1201,8 @@ int RedisAI_ScriptRun_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
   struct RedisAI_RunInfo *rinfo = RedisModule_Calloc(1, sizeof(struct RedisAI_RunInfo));
   rinfo->mctx = NULL;
   rinfo->sctx = sctx;
+  RedisModule_RetainString(ctx, keystr);
+  rinfo->runkey = keystr;
   rinfo->outkeys = outkeys;
   rinfo->err = NULL;
   AI_dictEntry *entry = AI_dictFind(run_queues, sto->devicestr);
